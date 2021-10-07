@@ -18,6 +18,7 @@ module.exports = {
     '**/third-party/**/*-test.js',
     '**/clients/test/**/*-test.js',
     '**/shared/**/*-test.js',
+    '**/build/**/*-test.js',
   ],
   transform: {},
   prettierPath: null,
