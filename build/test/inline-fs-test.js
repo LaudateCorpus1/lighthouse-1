@@ -69,10 +69,31 @@ describe('inline-fs', () => {
       fs.unlinkSync(tmpPath);
     });
 
-    it('returns null for content with no fs calls', async () => {
-      const content = 'const val = 1;';
-      const result = await replaceFsMethods(content, contextPath);
-      expect(result).toBe(null);
+    describe('supported syntax', () => {
+      it('returns null for content with no fs calls', async () => {
+        const content = 'const val = 1;';
+        const result = await replaceFsMethods(content, contextPath);
+        expect(result).toBe(null);
+      });
+
+      it('throws on contained unrecognized identifiers', async () => {
+        const content = `const myContent = fs.readFileSync(filePathVar, 'utf8');`;
+        await expect(() => replaceFsMethods(content, contextPath))
+          .rejects.toThrow(`unsupported identifier 'filePathVar'`);
+      });
+
+      it('throws on contained unsupported expressions', async () => {
+        const content = `const myContent = fs.readFileSync(function() {return 'path/'}, 'utf8');`;
+        await expect(() => replaceFsMethods(content, contextPath))
+          .rejects.toThrow(`unsupported node: FunctionExpression`);
+      });
+
+      it('throws on unsupported path methods', async () => {
+        // eslint-disable-next-line max-len
+        const content = `const myTextContent = fs.readFileSync(path.isAbsolute('${tmpPath}'), 'utf8');`;
+        await expect(() => replaceFsMethods(content, contextPath))
+          .rejects.toThrow(`'path.isAbsolute' is not supported with 'fs' function calls`);
+      });
     });
 
     describe('fs.readFileSync', () => {
@@ -105,6 +126,34 @@ describe('inline-fs', () => {
         await expect(() => replaceFsMethods(content, contextPath))
           .rejects.toThrow('Only `require.resolve()` and `path` methods are supported');
       });
+
+      it('executes path methods to determine the file to read', async () => {
+        const fileContents = 'some tricky-to-get text content';
+        fs.writeFileSync(tmpPath, fileContents);
+
+        // eslint-disable-next-line max-len
+        const content = `const myTextContent = fs.readFileSync(path.join(path.dirname('${tmpPath}'), path.basename('${tmpPath}')), 'utf8');`;
+        const result = await replaceFsMethods(content, contextPath);
+        expect(result).toBe(`const myTextContent = "${fileContents}";`);
+      });
+
+      it('inlines content from fs.readFileSync with variants of utf8 options', async () => {
+        fs.writeFileSync(tmpPath, 'some text content');
+
+        const utf8Variants = [
+          `'utf8'`,
+          `'utf-8'`,
+          `{encoding: 'utf8'}`,
+          `{encoding: 'utf-8'}`,
+          `{encoding: 'utf8', nonsense: 'flag'}`,
+        ];
+
+        for (const opts of utf8Variants) {
+          const content = `const myTextContent = fs.readFileSync('${tmpPath}', ${opts});`;
+          const result = await replaceFsMethods(content, contextPath);
+          expect(result).toBe(`const myTextContent = "some text content";`);
+        }
+      });
     });
 
     describe('fs.readdirSync', () => {
@@ -124,10 +173,37 @@ describe('inline-fs', () => {
         const content = `const files = [...fs.readdirSync('${tmpDir}'), ...fs.readdirSync('${tmpDir}').map(f => \`metrics/\${f}\`)]`;
         const result = await replaceFsMethods(content, contextPath);
         expect(result)
-            .toBe('const files = [...["test.js"], ...["test.js"].map(f => `metrics/${f}`)]');
+          .toBe('const files = [...["test.js"], ...["test.js"].map(f => `metrics/${f}`)]');
       });
 
-      // TODO(bckenny): non-existent directory
+      it('inlines content from fs.readdirSync with variants of utf8 options', async () => {
+        fs.writeFileSync(tmpPath, 'text');
+        const tmpDir = path.dirname(tmpPath);
+        const tmpFilename = path.basename(tmpPath);
+
+        const utf8Variants = [
+          '', // `options` are optional for readdirSync, so include missing opts.
+          `'utf8'`,
+          `'utf-8'`,
+          `{encoding: 'utf8'}`,
+          `{encoding: 'utf-8'}`,
+          `{encoding: 'utf8', nonsense: 'flag'}`,
+        ];
+
+        for (const opts of utf8Variants) {
+          // Trailing comma has no effect in missing opts case.
+          const content = `const files = fs.readdirSync('${tmpDir}', ${opts});`;
+          const result = await replaceFsMethods(content, contextPath);
+          expect(result).toBe(`const files = ["${tmpFilename}"];`);
+        }
+      });
+
+      it('throws when trying to fs.readdirSync a non-existent directory', async () => {
+        const nonsenseDir = `${LH_ROOT}/.tmp/nonsense-path/`;
+        const content = `const files = fs.readdirSync('${nonsenseDir}');`;
+        await expect(() => replaceFsMethods(content, contextPath))
+          .rejects.toThrow(/^could not inline fs\.readdirSync.+ENOENT.+nonsense-path\/'$/);
+      });
     });
 
   // TODO(bckenny): zero length path.resolve() (resolves to cwd?)

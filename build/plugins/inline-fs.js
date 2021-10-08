@@ -14,6 +14,7 @@ const MagicString = require('magic-string').default;
 
 const {LH_ROOT} = require('../../root.js');
 
+// ESTree provides much better types for AST nodes. See https://github.com/acornjs/acorn/issues/946
 /** @typedef {import('estree').Node} Node */
 /** @typedef {import('estree').SimpleCallExpression} SimpleCallExpression */
 
@@ -117,15 +118,17 @@ function collapseCallExpression(node, contextPath) {
 
   if (node.callee.object.name === 'require') {
     assert.equal(node.callee.property.name, 'resolve', unsupportedMsg);
-    // eslint-disable-next-line max-len
-    assert.equal(node.arguments.length, 1, 'only single-argument `require.resolve` call is supported');
+    assert.equal(node.arguments.length, 1, 'only single-argument `require.resolve` is supported');
     const argument = collapseToStringLiteral(node.arguments[0], contextPath);
     return resolve.sync(argument, {basedir: path.dirname(contextPath)});
   }
 
   if (node.callee.object.name !== 'path') throw new Error(unsupportedMsg);
 
-  // Support path methods that take string arguments and return a string.
+  const methodName = node.callee.property.name;
+  const args = node.arguments.map(arg => collapseToStringLiteral(arg, contextPath));
+
+  // Support path methods that take string argument(s) and return a string.
   const supportedPathMethods = [
     'resolve',
     'normalize',
@@ -135,13 +138,11 @@ function collapseCallExpression(node, contextPath) {
     'basename',
     'extname',
   ];
-  if (!supportedPathMethods.includes(node.callee.property.name)) {
-    // eslint-disable-next-line max-len
-    throw new Error(`'path.${node.callee.property.name}' is not supported with 'fs' function calls`);
+  if (!supportedPathMethods.includes(methodName)) {
+    throw new Error(`'path.${methodName}' is not supported with 'fs' function calls`);
   }
-
-  const args = node.arguments.map(arg => collapseToStringLiteral(arg, contextPath));
-  return path[node.callee.property.name](...args);
+  // @ts-expect-error: `methodName` established as existing on `path`.
+  return path[methodName](...args);
 }
 
 /**
@@ -218,15 +219,20 @@ async function getReaddirReplacement(node, contextPath) {
   }
 
   const constructedPath = collapseToStringLiteral(node.arguments[0], contextPath);
-  const contents = await fs.promises.readdir(constructedPath, 'utf8');
 
-  return JSON.stringify(contents);
+  try {
+    const contents = await fs.promises.readdir(constructedPath, 'utf8');
+    return JSON.stringify(contents);
+  } catch (err) {
+    throw new Error(`could not inline fs.readdirSync call: ${err.message}`);
+  }
 }
 
 /**
  * Inlines the values of selected `fs` methods if their targets can be
  * statically determined. Currently `readFileSync` and `readdirSync` are
  * supported.
+ * Returns `null` if no changes were made.
  * @param {string} code
  * @param {string} contextPath
  * @return {Promise<string|null>}
@@ -252,7 +258,7 @@ async function replaceFsMethods(code, contextPath) {
     }
 
     // If root of expression isn't the fs call, descend down chained methods on
-    // result of fs call (e.g. `fs.readdirSync().map(...)`) until reaching it.
+    // the result (e.g. `fs.readdirSync().map(...)`) until reaching the fs call.
     for (;;) {
       assertEqualString(parsed.type, 'CallExpression');
       assertEqualString(parsed.callee.type, 'MemberExpression');
@@ -275,7 +281,7 @@ async function replaceFsMethods(code, contextPath) {
       throw new Error(`unexpected fs call 'fs.${parsed.callee.property.name}'`);
     }
 
-    // @ts-expect-error - start and end provided by acorn over ESTree types.
+    // @ts-expect-error - `start` and `end` provided by acorn over ESTree types.
     const {start, end} = parsed;
     // TODO(bckenny): use options to customize `storeName` for source maps.
     output.overwrite(start, end, content);
