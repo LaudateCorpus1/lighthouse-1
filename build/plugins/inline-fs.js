@@ -238,23 +238,25 @@ async function getReaddirReplacement(node, contextPath) {
  * @return {Promise<string|null>}
  */
 async function replaceFsMethods(code, contextPath) {
-  // Return null for not-applicable files with as little work as possible.
   const fsSearch = /fs\.(?:readFileSync|readdirSync)/g;
-  let found = fsSearch.exec(code);
+  const foundIndices = [...code.matchAll(fsSearch)].map(e => e.index);
 
-  if (found === null) return null;
+  // Return null for not-applicable files with as little work as possible.
+  if (foundIndices.length === 0) return null;
 
   const output = new MagicString(code);
 
   // Can iterate forwards in string because MagicString always uses original indices.
-  while (found !== null) {
+  for (const foundIndex of foundIndices) {
+    if (foundIndex === undefined) continue; // https://github.com/microsoft/TypeScript/issues/36788
+
     let parsed;
     try {
-      parsed = parseExpressionAt(code, found.index, {ecmaVersion: 'latest'});
+      parsed = parseExpressionAt(code, foundIndex, {ecmaVersion: 'latest'});
     } catch (err) {
       // TODO(bckenny): can use err.pos. Move this into parseExpressionAt.
       // eslint-disable-next-line max-len
-      throw new Error(`${err.message} - ${path.relative(LH_ROOT, contextPath)}:${found.index} '${code.substr(found.index, 50)}'`);
+      throw new Error(`${err.message} - ${path.relative(LH_ROOT, contextPath)}:${foundIndex} '${code.substr(foundIndex, 50)}'`);
     }
 
     // If root of expression isn't the fs call, descend down chained methods on
@@ -285,8 +287,6 @@ async function replaceFsMethods(code, contextPath) {
     const {start, end} = parsed;
     // TODO(bckenny): use options to customize `storeName` for source maps.
     output.overwrite(start, end, content);
-
-    found = fsSearch.exec(code);
   }
 
   return output.toString();
