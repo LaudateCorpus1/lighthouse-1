@@ -15,6 +15,7 @@ const MagicString = require('magic-string').default;
 const {LH_ROOT} = require('../../root.js');
 
 /** @typedef {import('estree').Node} Node */
+/** @typedef {import('estree').SimpleCallExpression} SimpleCallExpression */
 
 /**
  * Uses assert.strictEqual, but does not widen the type to generic `string`,
@@ -44,8 +45,8 @@ function parseExpressionAt(input, offset, options) {
 }
 
 /**
- * Collapse tree using supported transforms until only a string literal is
- * returned (or an error for non-supported nodes is thrown).
+ * Collapse tree at `node` using supported transforms until only a string
+ * literal is returned (or an error is thrown for unsupported nodes).
  * @param {Node} node ESTree node.
  * @param {string} contextPath The path of the file containing this node.
  * @return {string}
@@ -90,6 +91,8 @@ function collapseToStringLiteral(node, contextPath) {
     }
 
     case 'TemplateElement': {
+      // Keep tsc happy. AST generation should error if invalid escape sequence in template literal.
+      if (typeof node.value.cooked !== 'string') throw new Error('syntax error');
       return node.value.cooked;
     }
   }
@@ -100,7 +103,7 @@ function collapseToStringLiteral(node, contextPath) {
 /**
  * Evaluate supported function calls and return the string result. Limited to
  * `require.resolve` and a subset of `path` methods.
- * @param {import('estree').SimpleCallExpression} node ESTree CallExpression node.
+ * @param {SimpleCallExpression} node ESTree CallExpression node.
  * @param {string} contextPath The path of the file containing this node.
  * @return {string}
  */
@@ -108,7 +111,9 @@ function collapseCallExpression(node, contextPath) {
   // eslint-disable-next-line max-len
   const unsupportedMsg = 'Only `require.resolve()` and `path` methods are supported within `fs` function calls';
 
-  assert.equal(node.callee.type, 'MemberExpression', unsupportedMsg);
+  assertEqualString(node.callee.type, 'MemberExpression', unsupportedMsg);
+  assertEqualString(node.callee.object.type, 'Identifier', unsupportedMsg);
+  assertEqualString(node.callee.property.type, 'Identifier');
 
   if (node.callee.object.name === 'require') {
     assert.equal(node.callee.property.name, 'resolve', unsupportedMsg);
@@ -152,7 +157,9 @@ function isUtf8Options(node) {
   } else if (node.type === 'ObjectExpression') {
     // Matches type `{encoding: 'utf8'|'utf-8'}`.
     return node.properties.some(prop => {
-      return prop.key.name === 'encoding' &&
+      return prop.type === 'Property' &&
+          prop.key.type === 'Identifier' && prop.key.name === 'encoding' &&
+          prop.value.type === 'Literal' &&
           (prop.value.value === 'utf8' || prop.value.value === 'utf-8');
     });
   }
@@ -163,11 +170,13 @@ function isUtf8Options(node) {
  * Attempts to statically determine the target of a `fs.readFileSync()` call and
  * returns the already-quoted contents of the file to be loaded.
  * If it's a JS file, it's minified before inlining.
- * @param {Node} node ESTree node for `fs.readFileSync` call.
+ * @param {SimpleCallExpression} node ESTree node for `fs.readFileSync` call.
  * @param {string} contextPath
  * @return {Promise<string>}
  */
 async function getReadFileReplacement(node, contextPath) {
+  assertEqualString(node.callee.type, 'MemberExpression');
+  assertEqualString(node.callee.property.type, 'Identifier');
   assert.equal(node.callee.property.name, 'readFileSync');
 
   assert.equal(node.arguments.length, 2, 'fs.readFileSync() must have two arguments');
@@ -194,11 +203,13 @@ async function getReadFileReplacement(node, contextPath) {
 /**
  * Attempts to statically determine the target of a `fs.readdirSync()` call and
  * returns a JSON.stringified array with the contents of the target directory.
- * @param {Node} node ESTree node for `fs.readdirSync` call.
+ * @param {SimpleCallExpression} node ESTree node for `fs.readdirSync` call.
  * @param {string} contextPath
  * @return {Promise<string>}
  */
 async function getReaddirReplacement(node, contextPath) {
+  assertEqualString(node.callee.type, 'MemberExpression');
+  assertEqualString(node.callee.property.type, 'Identifier');
   assert.equal(node.callee.property.name, 'readdirSync');
 
   // If there's no second argument, fs.readdirSync defaults to 'utf8'.
@@ -240,13 +251,20 @@ async function replaceFsMethods(code, contextPath) {
       throw new Error(`${err.message} - ${path.relative(LH_ROOT, contextPath)}:${found.index} '${code.substr(found.index, 50)}'`);
     }
 
-    // Descend down chained methods on result of fs call (e.g. `fs.readdirSync().map(...)`).
-    // TODO(bckenny): figure out this wonky assert business.
-    while (parsed.callee.object.name !== 'fs') {
+    // If root of expression isn't the fs call, descend down chained methods on
+    // result of fs call (e.g. `fs.readdirSync().map(...)`) until reaching it.
+    for (;;) {
       assertEqualString(parsed.type, 'CallExpression');
       assertEqualString(parsed.callee.type, 'MemberExpression');
+      if (parsed.callee.object.type === 'Identifier' && parsed.callee.object.name === 'fs') {
+        break;
+      }
+
       parsed = parsed.callee.object;
     }
+
+    // We've regexed for an fs method, so the property better be an identifier.
+    assertEqualString(parsed.callee.property.type, 'Identifier');
 
     let content;
     if (parsed.callee.property.name === 'readFileSync') {
@@ -257,8 +275,10 @@ async function replaceFsMethods(code, contextPath) {
       throw new Error(`unexpected fs call 'fs.${parsed.callee.property.name}'`);
     }
 
+    // @ts-expect-error - start and end provided by acorn over ESTree types.
+    const {start, end} = parsed;
     // TODO(bckenny): use options to customize `storeName` for source maps.
-    output.overwrite(parsed.start, parsed.end, content);
+    output.overwrite(start, end, content);
 
     found = fsSearch.exec(code);
   }
