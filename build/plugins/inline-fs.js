@@ -226,6 +226,7 @@ async function getReaddirReplacement(node, contextPath) {
   }
 }
 
+// TODO(bckenny): rename method inlineFs?
 /**
  * Inlines the values of selected `fs` methods if their targets can be
  * statically determined. Currently `readFileSync` and `readdirSync` are
@@ -290,28 +291,6 @@ async function replaceFsMethods(code, contextPath) {
   return output.toString();
 }
 
-const inlineFs = {
-  name: 'inline-fs',
-  setup(build) {
-    build.onLoad({filter: /.*/, namespace: 'file'}, async args => {
-      const rawContents = await fs.promises.readFile(args.path, 'utf8');
-
-      // TODO(bckenny): turn try/catch into warnings.
-      // const contents = await replaceFsMethods(rawContents, args.path);
-      let contents;
-      try {
-        contents = await replaceFsMethods(rawContents, args.path);
-      } catch (e) {
-        return;
-      }
-
-      if (contents === null) return;
-      return {contents};
-    });
-  },
-};
-
 module.exports = {
   replaceFsMethods,
-  inlineFs,
 };

@@ -16,7 +16,6 @@ function rollupPluginTypeCoerce(module) {
   return module;
 }
 
-const brfs = require('./rollup-brfs.js');
 const commonjs = rollupPluginTypeCoerce(require('@rollup/plugin-commonjs'));
 const nodePolyfills = rollupPluginTypeCoerce(require('rollup-plugin-polyfill-node'));
 const {nodeResolve} = require('@rollup/plugin-node-resolve');
@@ -26,8 +25,10 @@ const shim = require('rollup-plugin-shim');
 const {terser} = require('rollup-plugin-terser');
 const typescript = rollupPluginTypeCoerce(require('@rollup/plugin-typescript'));
 
+const inlineFs = require('./plugins/rollup-plugin-inline-fs.js');
+
 module.exports = {
-  brfs,
+  inlineFs,
   commonjs,
   nodePolyfills,
   nodeResolve,
