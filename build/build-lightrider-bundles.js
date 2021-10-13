@@ -11,9 +11,9 @@ const rollupPlugins = require('./rollup-plugins.js');
 const fs = require('fs');
 const path = require('path');
 const bundleBuilder = require('./build-bundle.js');
-const {minifyFileTransform} = require('./build-utils.js');
 const {buildPsiReport} = require('./build-report.js');
 const {LH_ROOT} = require('../root.js');
+const inlineFs = require('./plugins/browserify-inline-fs.js');
 
 const distDir = path.join(LH_ROOT, 'dist', 'lightrider');
 const sourceDir = path.join(LH_ROOT, 'clients', 'lightrider');
@@ -43,11 +43,7 @@ function buildReportGenerator() {
     // Flow report is not used in LR, so don't include flow assets.
     .ignore(require.resolve('../report/generator/flow-report-assets.js'))
     // Transform the fs.readFile etc into inline strings.
-    .transform('@wardpeet/brfs', {
-      readFileTransform: minifyFileTransform,
-      global: true,
-      parserOpts: {ecmaVersion: 12},
-    })
+    .transform(inlineFs)
     .bundle((err, src) => {
       if (err) throw err;
       fs.writeFileSync(bundleOutFile, src.toString());

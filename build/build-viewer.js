@@ -9,8 +9,8 @@ const fs = require('fs');
 const browserify = require('browserify');
 const rollupPlugins = require('./rollup-plugins.js');
 const GhPagesApp = require('./gh-pages-app.js');
-const {minifyFileTransform} = require('./build-utils.js');
 const {LH_ROOT} = require('../root.js');
+const inlineFs = require('./plugins/browserify-inline-fs.js');
 
 const localeBasenames = fs.readdirSync(LH_ROOT + '/shared/localization/locales/');
 const actualLocales = localeBasenames
@@ -27,9 +27,7 @@ async function run() {
   const generatorBrowserify = browserify(generatorFilename, {standalone: 'ReportGenerator'})
     // Flow report is not used in report viewer, so don't include flow assets.
     .ignore(require.resolve('../report/generator/flow-report-assets.js'))
-    .transform('@wardpeet/brfs', {
-      readFileTransform: minifyFileTransform,
-    });
+    .transform(inlineFs);
 
   /** @type {Promise<string>} */
   const generatorJsPromise = new Promise((resolve, reject) => {

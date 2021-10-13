@@ -18,7 +18,6 @@ const LighthouseRunner = require('../lighthouse-core/runner.js');
 const exorcist = require('exorcist');
 const browserify = require('browserify');
 const terser = require('terser');
-const {minifyFileTransform} = require('./build-utils.js');
 
 const inlineFs = require('./plugins/browserify-inline-fs.js');
 
@@ -84,6 +83,7 @@ async function browserifyFile(entryPath, distPath) {
     bundle.ignore(require.resolve('../report/generator/report-assets.js'));
   }
 
+  // TODO(bckenny):
   // Don't include locales in DevTools.
   if (isDevtools(entryPath)) {
     bundle.ignore(require.resolve('../shared/localization/locales.js'));

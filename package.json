@@ -128,7 +128,6 @@
     "@types/yargs-parser": "^15.0.0",
     "@typescript-eslint/eslint-plugin": "^4.30.0",
     "@typescript-eslint/parser": "^4.30.0",
-    "@wardpeet/brfs": "2.1.0",
     "acorn": "^8.5.0",
     "angular": "^1.7.4",
     "archiver": "^3.0.0",
