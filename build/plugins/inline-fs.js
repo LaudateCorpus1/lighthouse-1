@@ -11,6 +11,7 @@ const path = require('path');
 const acorn = require('acorn');
 const resolve = require('resolve');
 const MagicString = require('magic-string').default;
+const terser = require('terser');
 
 const {LH_ROOT} = require('../../root.js');
 
@@ -184,17 +185,14 @@ async function getReadFileReplacement(node, contextPath) {
   const constructedPath = collapseToStringLiteral(node.arguments[0], contextPath);
   assert.equal(isUtf8Options(node.arguments[1]), true, 'only utf8 readFileSync is supported');
 
-  const readContent = await fs.promises.readFile(constructedPath, 'utf8');
+  let readContent = await fs.promises.readFile(constructedPath, 'utf8');
 
+  // Minify inlined javascript.
   if (constructedPath.endsWith('.js')) {
-    // TODO(bckenny): turn any thrown errors to warning.
-    // TODO(bckenny): replace with terser
-    // const result = await esbuild.transform(readContent, {
-    //   target: 'esnext',
-    //   minify: true,
-    //   keepNames: true,
-    // });
-    // readContent = result.code;
+    const result = await terser.minify({[constructedPath]: readContent}, {ecma: 2019});
+    if (result.code) {
+      readContent = result.code;
+    }
   }
 
   // Escape quotes, new lines, etc so inlined string doesn't break host file.
@@ -314,7 +312,6 @@ const inlineFs = {
 };
 
 module.exports = {
-  collapseToStringLiteral,
   replaceFsMethods,
   inlineFs,
 };

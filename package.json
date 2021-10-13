@@ -36,7 +36,7 @@
     "start": "yarn build-report --standalone && node ./lighthouse-cli/index.js",
     "jest": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js",
     "test": "yarn diff:sample-json && yarn lint --quiet && yarn unit && yarn type-check",
-    "test-bundle": "yarn smoke --runner bundle -j=1 --retries=2 --invert-match forms",
+    "test-bundle": "yarn smoke --runner bundle -j=1 a11y dbw",
     "test-clients": "yarn jest \"$PWD/clients/\" && yarn jest --testMatch=\"**/clients/test/**/*-test-pptr.js\"",
     "test-viewer": "yarn unit-viewer && yarn jest --testMatch=\"**/lighthouse-viewer/**/*-test-pptr.js\"",
     "test-treemap": "yarn unit-treemap && yarn jest --testMatch=\"**/lighthouse-treemap/**/*-test-pptr.js\"",

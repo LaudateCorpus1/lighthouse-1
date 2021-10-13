@@ -20,6 +20,8 @@ const browserify = require('browserify');
 const terser = require('terser');
 const {minifyFileTransform} = require('./build-utils.js');
 
+const inlineFs = require('./plugins/browserify-inline-fs.js');
+
 const COMMIT_HASH = require('child_process')
   .execSync('git rev-parse HEAD')
   .toString().trim();
@@ -60,12 +62,8 @@ async function browserifyFile(entryPath, distPath) {
       pkg: Object.assign({COMMIT_HASH}, require('../package.json')),
       file: require.resolve('./banner.txt'),
     })
-    // Transform the fs.readFile etc into inline strings.
-    .transform('@wardpeet/brfs', {
-      readFileTransform: minifyFileTransform,
-      global: true,
-      parserOpts: {ecmaVersion: 12},
-    })
+    // Transform `fs.readFileSync`, etc into inline strings.
+    .transform(inlineFs)
     // Strip everything out of package.json includes except for the version.
     .transform('package-json-versionify');
 
@@ -144,6 +142,14 @@ async function browserifyFile(entryPath, distPath) {
     assert.ok(!code.includes('\nrequire='), 'contained unexpected browserify require stub');
 
     fs.writeFileSync(distPath, code);
+  }
+
+  const inlineFsEntries = inlineFs.performanceEntries;
+  const totalTime = inlineFsEntries.reduce((a, b) => a + b.elapsed, 0);
+  console.log(`total time inlining: ${totalTime.toFixed(2)}ms`);
+  console.log('top entries:');
+  for (const entry of inlineFsEntries.sort((a, b) => b.elapsed - a.elapsed).slice(0, 10)) {
+    console.log(`  ${entry.filepath}, ${entry.elapsed.toFixed(2)}ms`);
   }
 }
 
