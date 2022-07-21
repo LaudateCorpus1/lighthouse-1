@@ -8,6 +8,6 @@
     "@babel/preset-env": "^7.8.4",
     "browserify": "^16.5.0",
     "glob": "^7.1.6",
-    "terser": "^4.6.3"
+    "terser": "^4.8.1"
   }
 }
